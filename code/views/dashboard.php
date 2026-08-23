@@ -33,7 +33,7 @@ try {
                 <select id="dashboard-dispatcher-filter" class="input-text" style="min-width: 190px; height: 38px; cursor: pointer;">
                     <option value="">-- Todos los Choferes --</option>
                     <?php foreach ($listaChoferes as $ch): ?>
-                        <option value="<?php echo htmlspecialchars($ch['nombre']); ?>">
+                        <option value="<?php echo $ch['id']; ?>">
                             <?php echo htmlspecialchars($ch['nombre']); ?>
                         </option>
                     <?php endforeach; ?>

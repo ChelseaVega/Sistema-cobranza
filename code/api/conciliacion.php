@@ -88,9 +88,15 @@ try {
         }
 
         if ($despachador !== '') {
-            $query .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
-            $params['despachador1'] = '%' . $despachador . '%';
-            $params['despachador2'] = '%' . $despachador . '%';
+            if (is_numeric($despachador)) {
+                $query .= ' AND (d.chofer_id = :chofer_id OR ch.id = :chofer_id2)';
+                $params['chofer_id'] = (int)$despachador;
+                $params['chofer_id2'] = (int)$despachador;
+            } else {
+                $query .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
+                $params['despachador1'] = '%' . $despachador . '%';
+                $params['despachador2'] = '%' . $despachador . '%';
+            }
         }
 
         $query .= ' ORDER BY d.fecha DESC, d.id ASC';

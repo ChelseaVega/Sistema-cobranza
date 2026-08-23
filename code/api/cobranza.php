@@ -36,29 +36,38 @@ try {
         
         // 1. Clientes con Despacho en la fecha seleccionada (Agrupado por cliente)
         $queryHoy = '
-            SELECT c.id as cliente_id, c.nombre_oficial, c.telefono_whatsapp, c.categoria,
+            SELECT COALESCE(c.id, d.id) as cliente_id,
+                   COALESCE(c.nombre_oficial, d.nombre_cliente_raw, d.alias_despacho_consolidado) as nombre_oficial,
+                   COALESCE(c.telefono_whatsapp, "") as telefono_whatsapp,
+                   COALESCE(c.categoria, "local") as categoria,
                    SUM(d.botellas_zenda) as zenda_hoy,
                    SUM(d.botellas_alpes) as alpes_hoy,
                    MAX(d.estado_pago) as estado_pago,
                    MAX(COALESCE(ch.nombre, d.despachador)) as despachador,
                    COALESCE(s.botellas_pendientes_zenda, 0) as zenda_total,
                    COALESCE(s.botellas_pendientes_alpes, 0) as alpes_total,
-                   COALESCE(s.monto_deuda_total_usd, 0.00) as deuda_total
+                   COALESCE(s.monto_deuda_total_usd, SUM(d.monto_despacho_usd)) as deuda_total
             FROM despachos d
-            JOIN clientes c ON d.cliente_id = c.id
-            LEFT JOIN choferes ch ON d.chofer_id = ch.id
+            LEFT JOIN clientes c ON d.cliente_id = c.id
+            LEFT JOIN choferes ch ON (d.chofer_id = ch.id OR (d.chofer_id IS NULL AND ch.nombre = d.despachador))
             LEFT JOIN saldos_pendientes s ON c.id = s.cliente_id
-            WHERE d.fecha = :fecha AND c.categoria != "facturacion_legal"
+            WHERE d.fecha = :fecha AND (c.categoria IS NULL OR c.categoria != "facturacion_legal")
         ';
         $paramsHoy = ['fecha' => $fecha];
 
         if ($despachadorFiltro !== '') {
-            $queryHoy .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
-            $paramsHoy['despachador1'] = '%' . $despachadorFiltro . '%';
-            $paramsHoy['despachador2'] = '%' . $despachadorFiltro . '%';
+            if (is_numeric($despachadorFiltro)) {
+                $queryHoy .= ' AND (d.chofer_id = :chofer_id OR ch.id = :chofer_id2)';
+                $paramsHoy['chofer_id'] = (int)$despachadorFiltro;
+                $paramsHoy['chofer_id2'] = (int)$despachadorFiltro;
+            } else {
+                $queryHoy .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
+                $paramsHoy['despachador1'] = '%' . $despachadorFiltro . '%';
+                $paramsHoy['despachador2'] = '%' . $despachadorFiltro . '%';
+            }
         }
 
-        $queryHoy .= ' GROUP BY c.id, c.nombre_oficial, c.telefono_whatsapp, c.categoria, s.botellas_pendientes_zenda, s.botellas_pendientes_alpes, s.monto_deuda_total_usd';
+        $queryHoy .= ' GROUP BY COALESCE(c.id, d.id), COALESCE(c.nombre_oficial, d.nombre_cliente_raw, d.alias_despacho_consolidado), c.telefono_whatsapp, c.categoria, s.botellas_pendientes_zenda, s.botellas_pendientes_alpes, s.monto_deuda_total_usd';
 
         $stmtHoy = $pdo->prepare($queryHoy);
         $stmtHoy->execute($paramsHoy);
