@@ -3,6 +3,8 @@
 // VISTA: PANEL DE CONTROL GENERAL (views/dashboard.php)
 // -------------------------------------------------------------
 
+require_once __DIR__ . '/../config/database.php';
+
 $listaChoferes = [];
 try {
     $pdoDb = getDatabaseConnection();
