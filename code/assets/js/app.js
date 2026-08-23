@@ -135,10 +135,52 @@ async function openConfigModal() {
 let currentSelectedDate = new Date().toISOString().split('T')[0];
 let currentDispatcherFilter = '';
 
+/**
+ * Función universal para copiar al portapapeles compatible con todos los navegadores
+ */
+async function copyTextToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (err) {
+            console.warn('Fallo navigator.clipboard, usando fallback textarea...', err);
+        }
+    }
+    
+    // Fallback universal con textarea invisible
+    return new Promise((resolve, reject) => {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '-9999px';
+        textArea.style.left = '-9999px';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (successful) {
+                resolve(true);
+            } else {
+                reject(new Error('No se pudo copiar el texto.'));
+            }
+        } catch (err) {
+            document.body.removeChild(textArea);
+            reject(err);
+        }
+    });
+}
+
 function initDashboard() {
-    // Inputs de filtros
+    // Inputs de filtros y botones
     const dateInput = document.getElementById('dashboard-date-filter');
     const dispatcherInput = document.getElementById('dashboard-dispatcher-filter');
+    const btnBuscar = document.getElementById('btn-dashboard-buscar');
+    const btnLimpiar = document.getElementById('btn-dashboard-limpiar');
     
     // Establecer fecha de hoy en el input
     if (dateInput) {
@@ -146,6 +188,12 @@ function initDashboard() {
         dateInput.addEventListener('change', (e) => {
             currentSelectedDate = e.target.value;
             loadDashboardData();
+        });
+        dateInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                currentSelectedDate = dateInput.value;
+                loadDashboardData();
+            }
         });
     }
     
@@ -156,7 +204,33 @@ function initDashboard() {
             clearTimeout(dispatcherTimer);
             dispatcherTimer = setTimeout(() => {
                 loadDashboardData();
-            }, 250);
+            }, 300);
+        });
+
+        dispatcherInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                currentDispatcherFilter = dispatcherInput.value.trim();
+                loadDashboardData();
+            }
+        });
+    }
+
+    if (btnBuscar) {
+        btnBuscar.addEventListener('click', () => {
+            if (dateInput) currentSelectedDate = dateInput.value;
+            if (dispatcherInput) currentDispatcherFilter = dispatcherInput.value.trim();
+            loadDashboardData();
+        });
+    }
+
+    if (btnLimpiar) {
+        btnLimpiar.addEventListener('click', () => {
+            if (dispatcherInput) {
+                dispatcherInput.value = '';
+                currentDispatcherFilter = '';
+            }
+            loadDashboardData();
         });
     }
     
@@ -295,36 +369,38 @@ function renderColaCobranzaTable(cola) {
             </td>
         `;
         
-        // Hook de botón copiar
+        // Hook de botón copiar con fallback universal
         const btnCopiar = tr.querySelector('.btn-action-copiar');
         btnCopiar.addEventListener('click', async () => {
-            // Copiar el mensaje al portapapeles
-            navigator.clipboard.writeText(item.mensaje_texto)
-                .then(async () => {
-                    // Notificar al backend para que actualice a 'notificado' si estaba pendiente
-                    if (item.estado_pago_hoy === 'pendiente') {
-                        try {
-                            const res = await fetchAPI(`${API_BASE}/cobranza.php?action=notificar`, {
-                                method: 'POST',
-                                body: JSON.stringify({
-                                    cliente_id: item.cliente_id,
-                                    fecha: currentSelectedDate
-                                })
-                            });
-                            if (res.success) {
-                                // Recargar datos locales del dashboard para refrescar el estatus
+            try {
+                await copyTextToClipboard(item.mensaje_texto);
+                btnCopiar.textContent = '¡Copiado con Éxito!';
+                btnCopiar.style.backgroundColor = 'var(--secondary)';
+                btnCopiar.style.borderColor = 'var(--secondary)';
+
+                // Notificar al backend para que actualice a 'notificado' si estaba pendiente
+                if (item.estado_pago_hoy === 'pendiente') {
+                    try {
+                        const res = await fetchAPI(`${API_BASE}/cobranza.php?action=notificar`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                cliente_id: item.cliente_id,
+                                fecha: currentSelectedDate
+                            })
+                        });
+                        if (res.success) {
+                            setTimeout(() => {
                                 loadDashboardData();
-                            }
-                        } catch (err) {
-                            console.error('Error al actualizar estatus:', err);
+                            }, 500);
                         }
-                    } else {
-                        alert('Mensaje copiado al portapapeles nuevamente.');
+                    } catch (err) {
+                        console.error('Error al actualizar estatus:', err);
                     }
-                })
-                .catch(err => {
-                    alert('Error al copiar el mensaje: ' + err);
-                });
+                }
+            } catch (err) {
+                console.error('Error copiando:', err);
+                alert('No se pudo copiar automáticamente. Por favor seleccione y copie el texto manualmente.');
+            }
         });
         
         tbody.appendChild(tr);

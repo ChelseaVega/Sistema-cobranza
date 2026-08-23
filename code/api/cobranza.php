@@ -34,13 +34,16 @@ try {
         $diaSemanaNombre = $diasSemana[date('w', $timestamp)];
         $fechaFormateada = date('d/m/Y', $timestamp);
         
-        // 1. Clientes con Despacho HOY (Excluir facturacion_legal)
+        // 1. Clientes con Despacho en la fecha seleccionada (Agrupado por cliente)
         $queryHoy = '
             SELECT c.id as cliente_id, c.nombre_oficial, c.telefono_whatsapp, c.categoria,
-                   d.botellas_zenda as zenda_hoy, d.botellas_alpes as alpes_hoy, d.estado_pago,
-                   COALESCE(ch.nombre, d.despachador) as despachador,
-                   s.botellas_pendientes_zenda as zenda_total, s.botellas_pendientes_alpes as alpes_total,
-                   s.monto_deuda_total_usd as deuda_total
+                   SUM(d.botellas_zenda) as zenda_hoy,
+                   SUM(d.botellas_alpes) as alpes_hoy,
+                   MAX(d.estado_pago) as estado_pago,
+                   MAX(COALESCE(ch.nombre, d.despachador)) as despachador,
+                   COALESCE(s.botellas_pendientes_zenda, 0) as zenda_total,
+                   COALESCE(s.botellas_pendientes_alpes, 0) as alpes_total,
+                   COALESCE(s.monto_deuda_total_usd, 0.00) as deuda_total
             FROM despachos d
             JOIN clientes c ON d.cliente_id = c.id
             LEFT JOIN choferes ch ON d.chofer_id = ch.id
@@ -55,6 +58,8 @@ try {
             $paramsHoy['despachador2'] = '%' . $despachadorFiltro . '%';
         }
 
+        $queryHoy .= ' GROUP BY c.id, c.nombre_oficial, c.telefono_whatsapp, c.categoria, s.botellas_pendientes_zenda, s.botellas_pendientes_alpes, s.monto_deuda_total_usd';
+
         $stmtHoy = $pdo->prepare($queryHoy);
         $stmtHoy->execute($paramsHoy);
         $despachosHoy = $stmtHoy->fetchAll();
@@ -67,7 +72,6 @@ try {
             ORDER BY fecha ASC
         ');
 
-        // Mantener registro de IDs que ya salieron hoy para no duplicarlos en la cola de inactivos
         $idsExcluidos = [];
         $cola = [];
         
@@ -78,15 +82,16 @@ try {
             $alpesHoy = (int)$row['alpes_hoy'];
             $totalHoy = $zendaHoy + $alpesHoy;
             
-            $zendaTotal = isset($row['zenda_total']) ? (int)$row['zenda_total'] : 0;
-            $alpesTotal = isset($row['alpes_total']) ? (int)$row['alpes_total'] : 0;
+            $zendaTotal = (int)$row['zenda_total'];
+            $alpesTotal = (int)$row['alpes_total'];
+            $totalGlobal = $zendaTotal + $alpesTotal;
             
-            // Los saldos anteriores (antes del despacho de hoy) se obtienen restando lo entregado hoy
+            // Los saldos anteriores (antes del despacho de hoy)
             $zendaAnterior = max(0, $zendaTotal - $zendaHoy);
             $alpesAnterior = max(0, $alpesTotal - $alpesHoy);
             $totalAnterior = $zendaAnterior + $alpesAnterior;
             
-            $deudaTotal = isset($row['deuda_total']) ? (float)$row['deuda_total'] : 0.0;
+            $deudaTotal = (float)$row['deuda_total'];
             
             // Consultar despachos históricos anteriores pendientes de este cliente
             $stmtHist->execute(['cliente_id' => $row['cliente_id'], 'fecha' => $fecha]);
@@ -126,7 +131,7 @@ try {
                 'totales_consolidados' => [
                     'total_botellas_zenda' => $zendaTotal,
                     'total_botellas_alpes' => $alpesTotal,
-                    'total_botellas_global' => ($zendaTotal + $alpesTotal),
+                    'total_botellas_global' => $totalGlobal,
                     'monto_deuda_total_usd' => $deudaTotal
                 ],
                 'mensaje_texto' => $mensaje
@@ -134,7 +139,6 @@ try {
         }
         
         // 2. Clientes INACTIVOS con deuda (saldo > 0 y que no hayan recibido hoy ni sean facturacion_legal)
-        // Solo incluirlos si no hay filtro de chofer restrictivo o si coincide
         if ($despachadorFiltro === '') {
             $placeholders = '';
             if (!empty($idsExcluidos)) {
@@ -143,8 +147,9 @@ try {
             
             $queryInactivos = '
                 SELECT c.id as cliente_id, c.nombre_oficial, c.telefono_whatsapp, c.categoria,
-                       s.botellas_pendientes_zenda as zenda_total, s.botellas_pendientes_alpes as alpes_total,
-                       s.monto_deuda_total_usd as deuda_total
+                       COALESCE(s.botellas_pendientes_zenda, 0) as zenda_total,
+                       COALESCE(s.botellas_pendientes_alpes, 0) as alpes_total,
+                       COALESCE(s.monto_deuda_total_usd, 0.00) as deuda_total
                 FROM saldos_pendientes s
                 JOIN clientes c ON s.cliente_id = c.id
                 WHERE (s.botellas_pendientes_zenda > 0 OR s.botellas_pendientes_alpes > 0)
@@ -157,6 +162,7 @@ try {
             foreach ($inactivos as $row) {
                 $zendaTotal = (int)$row['zenda_total'];
                 $alpesTotal = (int)$row['alpes_total'];
+                $totalGlobal = $zendaTotal + $alpesTotal;
                 $deudaTotal = (float)$row['deuda_total'];
                 
                 $stmtHist->execute(['cliente_id' => $row['cliente_id'], 'fecha' => $fecha]);
@@ -190,12 +196,12 @@ try {
                     'saldos_anteriores' => [
                         'botellas_zenda_pendientes' => $zendaTotal,
                         'botellas_alpes_pendientes' => $alpesTotal,
-                        'total_pendientes' => ($zendaTotal + $alpesTotal)
+                        'total_pendientes' => $totalGlobal
                     ],
                     'totales_consolidados' => [
                         'total_botellas_zenda' => $zendaTotal,
                         'total_botellas_alpes' => $alpesTotal,
-                        'total_botellas_global' => ($zendaTotal + $alpesTotal),
+                        'total_botellas_global' => $totalGlobal,
                         'monto_deuda_total_usd' => $deudaTotal
                     ],
                     'mensaje_texto' => $mensaje
@@ -270,7 +276,7 @@ try {
 
 /**
  * Función que genera la plantilla del mensaje de WhatsApp según las reglas de negocio.
- * Incluye desglose por fecha de entregas anteriores.
+ * Garantiza que la deuda total real de saldos_pendientes se refleje íntegramente.
  * NUNCA DEBE INCLUIR MONTOS EN DÓLARES ($) NI EN BOLÍVARES (Bs).
  */
 function generarMensajeCobranza($nombreCliente, $recibioHoy, $zendaHoy, $alpesHoy, $zendaAnt, $alpesAnt, $diaSemana, $fecha, $anterioresDetalle = []) {
@@ -279,55 +285,56 @@ function generarMensajeCobranza($nombreCliente, $recibioHoy, $zendaHoy, $alpesHo
     
     // 1. Despacho del día
     if ($recibioHoy) {
-        $textoHoy = "";
         $totalHoy = $zendaHoy + $alpesHoy;
-        
-        if ($zendaHoy > 0 && $alpesHoy > 0) {
-            $textoHoy = "{$totalHoy} botellas ({$alpesHoy} Alpes / {$zendaHoy} La Zenda)";
-        } elseif ($zendaHoy > 0) {
-            $textoHoy = "{$zendaHoy} botellas La Zenda";
-        } else {
-            $textoHoy = "{$alpesHoy} botellas";
-        }
-        
-        $cuerpo .= "Para confirmar {$textoHoy} del dia {$fecha}.\n";
+        $txtHoy = formatBotellasTexto($zendaHoy, $alpesHoy);
+        $cuerpo .= "Para confirmar {$txtHoy} del dia {$fecha}.\n";
     }
 
-    // 2. Desglose de saldo pendiente y fechas anteriores
+    // 2. Desglose de saldo anterior pendiente (garantizando total de saldos_pendientes)
     $totalAnt = $zendaAnt + $alpesAnt;
     if ($totalAnt > 0) {
+        $txtTotalAnt = formatBotellasTexto($zendaAnt, $alpesAnt);
+        
         if (!empty($anterioresDetalle)) {
-            // Agrupar por fecha
+            // Agrupar despachos anteriores por fecha
             $porFecha = [];
+            $sumZendaHist = 0;
+            $sumAlpesHist = 0;
+            
             foreach ($anterioresDetalle as $ant) {
                 $f = date('d/m/Y', strtotime($ant['fecha']));
                 if (!isset($porFecha[$f])) {
                     $porFecha[$f] = ['zenda' => 0, 'alpes' => 0];
                 }
-                $porFecha[$f]['zenda'] += (int)$ant['botellas_zenda'];
-                $porFecha[$f]['alpes'] += (int)$ant['botellas_alpes'];
+                $z = (int)$ant['botellas_zenda'];
+                $a = (int)$ant['botellas_alpes'];
+                $porFecha[$f]['zenda'] += $z;
+                $porFecha[$f]['alpes'] += $a;
+                $sumZendaHist += $z;
+                $sumAlpesHist += $a;
             }
 
-            if (count($porFecha) === 1) {
+            if (count($porFecha) === 1 && ($sumZendaHist + $sumAlpesHist) >= $totalAnt) {
                 $fUnica = array_key_first($porFecha);
-                $z = $porFecha[$fUnica]['zenda'];
-                $a = $porFecha[$fUnica]['alpes'];
-                $t = $z + $a;
-                $txt = formatBotellasTexto($z, $a);
-                $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txt} del día {$fUnica}.\n";
+                $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txtTotalAnt} del día {$fUnica}.\n";
             } else {
-                $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de entregas anteriores:\n";
+                $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txtTotalAnt} de entregas anteriores:\n";
                 foreach ($porFecha as $fStr => $cantidades) {
-                    $z = $cantidades['zenda'];
-                    $a = $cantidades['alpes'];
-                    $txt = formatBotellasTexto($z, $a);
-                    $cuerpo .= "• Del día {$fStr}: {$txt}\n";
+                    $txtFila = formatBotellasTexto($cantidades['zenda'], $cantidades['alpes']);
+                    $cuerpo .= "• Del día {$fStr}: {$txtFila}\n";
+                }
+                
+                // Si la deuda de saldos_pendientes supera los registros de la tabla despachos
+                $remZenda = max(0, $zendaAnt - $sumZendaHist);
+                $remAlpes = max(0, $alpesAnt - $sumAlpesHist);
+                if (($remZenda + $remAlpes) > 0) {
+                    $txtRem = formatBotellasTexto($remZenda, $remAlpes);
+                    $cuerpo .= "• Saldo anterior acumulado: {$txtRem}\n";
                 }
             }
         } else {
-            // Respaldo acumulado general si no hay desglose por fechas individuales en despachos
-            $txt = formatBotellasTexto($zendaAnt, $alpesAnt);
-            $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txt} de entregas anteriores.\n";
+            // Si no hay filas históricas individuales pero existe deuda en saldos_pendientes
+            $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txtTotalAnt} de entregas anteriores.\n";
         }
     }
     

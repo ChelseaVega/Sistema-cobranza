@@ -19,8 +19,16 @@
             
             <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <label for="dashboard-dispatcher-filter" style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">Filtro Chofer:</label>
-                <input type="text" id="dashboard-dispatcher-filter" class="input-text" placeholder="Ej. Chacao" style="width: 160px;">
+                <input type="text" id="dashboard-dispatcher-filter" class="input-text" placeholder="Ej. Gabriel Farias" style="width: 180px;">
             </div>
+
+            <button id="btn-dashboard-buscar" class="btn-primary" style="padding: 0.55rem 1.1rem; font-size: 0.85rem;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                Buscar
+            </button>
+            <button id="btn-dashboard-limpiar" class="btn-secondary" style="padding: 0.55rem 0.85rem; font-size: 0.85rem;" title="Restablecer filtros">
+                Limpiar
+            </button>
         </div>
     </div>
     
