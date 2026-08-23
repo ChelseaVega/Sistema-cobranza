@@ -18,8 +18,10 @@
             </div>
             
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <label for="dashboard-dispatcher-filter" style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">Filtro Chofer:</label>
-                <input type="text" id="dashboard-dispatcher-filter" class="input-text" placeholder="Ej. Gabriel Farias" style="width: 180px;">
+                <label for="dashboard-dispatcher-filter" style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">Chofer:</label>
+                <select id="dashboard-dispatcher-filter" class="input-text" style="min-width: 190px; height: 38px; cursor: pointer;">
+                    <option value="">-- Todos los Choferes --</option>
+                </select>
             </div>
 
             <button id="btn-dashboard-buscar" class="btn-primary" style="padding: 0.55rem 1.1rem; font-size: 0.85rem;">

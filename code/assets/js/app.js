@@ -175,6 +175,33 @@ async function copyTextToClipboard(text) {
     });
 }
 
+/**
+ * Carga la lista de choferes activos en el select de filtrado del Dashboard
+ */
+async function loadChoferesFilter() {
+    const select = document.getElementById('dashboard-dispatcher-filter');
+    if (!select) return;
+
+    try {
+        const res = await fetchAPI(`${API_BASE}/choferes.php?action=listar`);
+        if (res.success && Array.isArray(res.choferes)) {
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">-- Todos los Choferes --</option>';
+            res.choferes.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.nombre;
+                opt.textContent = `${c.nombre}`;
+                select.appendChild(opt);
+            });
+            if (currentVal) {
+                select.value = currentVal;
+            }
+        }
+    } catch (err) {
+        console.error('Error cargando choferes para el selector:', err);
+    }
+}
+
 function initDashboard() {
     // Inputs de filtros y botones
     const dateInput = document.getElementById('dashboard-date-filter');
@@ -182,6 +209,9 @@ function initDashboard() {
     const btnBuscar = document.getElementById('btn-dashboard-buscar');
     const btnLimpiar = document.getElementById('btn-dashboard-limpiar');
     
+    // Cargar opciones del selector de choferes
+    loadChoferesFilter();
+
     // Establecer fecha de hoy en el input
     if (dateInput) {
         dateInput.value = currentSelectedDate;
@@ -198,21 +228,9 @@ function initDashboard() {
     }
     
     if (dispatcherInput) {
-        let dispatcherTimer = null;
-        dispatcherInput.addEventListener('input', (e) => {
+        dispatcherInput.addEventListener('change', (e) => {
             currentDispatcherFilter = e.target.value.trim();
-            clearTimeout(dispatcherTimer);
-            dispatcherTimer = setTimeout(() => {
-                loadDashboardData();
-            }, 300);
-        });
-
-        dispatcherInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                currentDispatcherFilter = dispatcherInput.value.trim();
-                loadDashboardData();
-            }
+            loadDashboardData();
         });
     }
 
