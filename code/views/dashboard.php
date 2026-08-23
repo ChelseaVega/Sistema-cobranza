@@ -2,6 +2,15 @@
 // -------------------------------------------------------------
 // VISTA: PANEL DE CONTROL GENERAL (views/dashboard.php)
 // -------------------------------------------------------------
+
+$listaChoferes = [];
+try {
+    $pdoDb = getDatabaseConnection();
+    $stmtChoferes = $pdoDb->query('SELECT id, nombre FROM choferes WHERE activo = 1 ORDER BY nombre ASC');
+    $listaChoferes = $stmtChoferes->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $listaChoferes = [];
+}
 ?>
 <div id="dashboard-view">
     <!-- Header interno de la vista con filtros y acciones globales -->
@@ -21,6 +30,11 @@
                 <label for="dashboard-dispatcher-filter" style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">Chofer:</label>
                 <select id="dashboard-dispatcher-filter" class="input-text" style="min-width: 190px; height: 38px; cursor: pointer;">
                     <option value="">-- Todos los Choferes --</option>
+                    <?php foreach ($listaChoferes as $ch): ?>
+                        <option value="<?php echo htmlspecialchars($ch['nombre']); ?>">
+                            <?php echo htmlspecialchars($ch['nombre']); ?>
+                        </option>
+                    <?php endforeach; ?>
                 </select>
             </div>
 
