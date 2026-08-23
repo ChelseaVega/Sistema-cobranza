@@ -182,6 +182,11 @@ async function loadChoferesFilter() {
     const select = document.getElementById('dashboard-dispatcher-filter');
     if (!select) return;
 
+    // Si ya tiene opciones renderizadas por el servidor, conservarlas
+    if (select.options.length > 1) {
+        return;
+    }
+
     try {
         const res = await fetchAPI(`${API_BASE}/choferes.php?action=listar`);
         if (res.success && Array.isArray(res.choferes)) {
@@ -212,42 +217,29 @@ function initDashboard() {
     // Cargar opciones del selector de choferes
     loadChoferesFilter();
 
-    // Establecer fecha de hoy en el input
     if (dateInput) {
-        dateInput.value = currentSelectedDate;
-        dateInput.addEventListener('change', (e) => {
-            currentSelectedDate = e.target.value;
-            loadDashboardData();
-        });
+        dateInput.addEventListener('change', () => loadDashboardData());
         dateInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                currentSelectedDate = dateInput.value;
-                loadDashboardData();
-            }
+            if (e.key === 'Enter') loadDashboardData();
         });
     }
     
     if (dispatcherInput) {
-        dispatcherInput.addEventListener('change', (e) => {
-            currentDispatcherFilter = e.target.value.trim();
-            loadDashboardData();
-        });
+        dispatcherInput.addEventListener('change', () => loadDashboardData());
     }
 
     if (btnBuscar) {
-        btnBuscar.addEventListener('click', () => {
-            if (dateInput) currentSelectedDate = dateInput.value;
-            if (dispatcherInput) currentDispatcherFilter = dispatcherInput.value.trim();
+        btnBuscar.addEventListener('click', (e) => {
+            e.preventDefault();
             loadDashboardData();
         });
     }
 
     if (btnLimpiar) {
-        btnLimpiar.addEventListener('click', () => {
-            if (dispatcherInput) {
-                dispatcherInput.value = '';
-                currentDispatcherFilter = '';
-            }
+        btnLimpiar.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (dateInput) dateInput.value = '';
+            if (dispatcherInput) dispatcherInput.value = '';
             loadDashboardData();
         });
     }
@@ -261,11 +253,21 @@ function initDashboard() {
  */
 async function loadDashboardData() {
     try {
-        // 1. Consultar estatus de la fecha seleccionada para obtener alertas pendientes
-        const statusRes = await fetchAPI(`${API_BASE}/conciliacion.php?action=status&fecha=${currentSelectedDate}`);
+        const dateInput = document.getElementById('dashboard-date-filter');
+        const dispatcherInput = document.getElementById('dashboard-dispatcher-filter');
+
+        const dateVal = dateInput ? dateInput.value.trim() : '';
+        const dispVal = dispatcherInput ? dispatcherInput.value.trim() : '';
+
+        let queryParams = [];
+        if (dateVal) queryParams.push(`fecha=${encodeURIComponent(dateVal)}`);
+        if (dispVal) queryParams.push(`despachador=${encodeURIComponent(dispVal)}`);
+        const queryString = queryParams.length > 0 ? `&${queryParams.join('&')}` : '';
+
+        // 1. Consultar estatus general o de la fecha
+        const statusRes = await fetchAPI(`${API_BASE}/conciliacion.php?action=status${queryString}`);
         
         if (statusRes.success) {
-            // Actualizar KPI Card de Alertas
             const alertasKPI = document.getElementById('kpi-alertas-pendientes');
             const alertasCount = document.getElementById('val-alertas-pendientes');
             if (alertasCount) alertasCount.textContent = statusRes.alertas_pendientes;
@@ -279,18 +281,15 @@ async function loadDashboardData() {
             }
         }
         
-        // 2. Cargar Resumen de Despachos del día
-        const dispatcherParam = currentDispatcherFilter
-            ? `&despachador=${encodeURIComponent(currentDispatcherFilter)}`
-            : '';
-        const resumenRes = await fetchAPI(`${API_BASE}/conciliacion.php?action=resumen&fecha=${currentSelectedDate}${dispatcherParam}`);
+        // 2. Cargar Resumen de Despachos
+        const resumenRes = await fetchAPI(`${API_BASE}/conciliacion.php?action=resumen${queryString}`);
         renderDespachosTable(resumenRes.despachos || []);
         
         // 3. Cargar Cola de Cobranza WhatsApp
-        const cobranzaRes = await fetchAPI(`${API_BASE}/cobranza.php?action=cola&fecha=${currentSelectedDate}${dispatcherParam}`);
+        const cobranzaRes = await fetchAPI(`${API_BASE}/cobranza.php?action=cola${queryString}`);
         renderColaCobranzaTable(cobranzaRes.cola || []);
         
-        // 4. Actualizar KPIs de totales despachados, deuda total, y cobranza
+        // 4. Actualizar KPIs
         updateKpis(resumenRes.despachos || [], cobranzaRes.cola || []);
         
     } catch (err) {

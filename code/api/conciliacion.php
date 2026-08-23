@@ -36,40 +36,36 @@ function normalizeText($str) {
 try {
     $pdo = getDatabaseConnection();
     
-    // CASO 1: Listar/Verificar estatus de una fecha (GET)
+    // CASO 1: Listar/Verificar estatus de una fecha o general (GET)
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'status') {
         $fecha = isset($_GET['fecha']) ? trim($_GET['fecha']) : '';
-        if (empty($fecha)) {
-            sendJsonResponse(false, 'La fecha es requerida.', [], 400);
-        }
         
-        // Verificar si ya se importó (si existen despachos guardados para esta fecha)
-        $stmt = $pdo->prepare('SELECT COUNT(*) as total FROM despachos WHERE fecha = :fecha');
-        $stmt->execute(['fecha' => $fecha]);
-        $totalDespachos = (int)$stmt->fetch()['total'];
+        if (!empty($fecha)) {
+            $stmt = $pdo->prepare('SELECT COUNT(*) as total FROM despachos WHERE fecha = :fecha');
+            $stmt->execute(['fecha' => $fecha]);
+            $totalDespachos = (int)$stmt->fetch()['total'];
+            
+            $stmt = $pdo->prepare('SELECT COUNT(*) as total FROM alertas_revision WHERE fecha = :fecha AND resuelto = 0');
+            $stmt->execute(['fecha' => $fecha]);
+            $alertasPendientes = (int)$stmt->fetch()['total'];
+        } else {
+            $totalDespachos = (int)$pdo->query('SELECT COUNT(*) as total FROM despachos')->fetchColumn();
+            $alertasPendientes = (int)$pdo->query('SELECT COUNT(*) as total FROM alertas_revision WHERE resuelto = 0')->fetchColumn();
+        }
         
         $yaConciliado = ($totalDespachos > 0);
         
-        // Contar alertas pendientes para esta fecha
-        $stmt = $pdo->prepare('SELECT COUNT(*) as total FROM alertas_revision WHERE fecha = :fecha AND resuelto = 0');
-        $stmt->execute(['fecha' => $fecha]);
-        $alertasPendientes = (int)$stmt->fetch()['total'];
-        
         sendJsonResponse(true, 'Consulta de estatus exitosa.', [
-            'tiene_ingesta' => $yaConciliado, // Se unifica: si ya hay despachos, tiene ingesta
+            'tiene_ingesta' => $yaConciliado,
             'ya_conciliado' => $yaConciliado,
             'alertas_pendientes' => $alertasPendientes,
             'total_despachos' => $totalDespachos
         ]);
     }
     
-    // CASO 2: Obtener resumen de despachos de la jornada (GET)
+    // CASO 2: Obtener resumen de despachos (GET)
     elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'resumen') {
         $fecha = isset($_GET['fecha']) ? trim($_GET['fecha']) : '';
-        if (empty($fecha)) {
-            sendJsonResponse(false, 'La fecha es requerida.', [], 400);
-        }
-
         $despachador = isset($_GET['despachador']) ? trim($_GET['despachador']) : '';
 
         $query = '
@@ -82,9 +78,14 @@ try {
             LEFT JOIN clientes c ON d.cliente_id = c.id
             LEFT JOIN choferes ch ON d.chofer_id = ch.id
             LEFT JOIN formas_pago fp ON d.forma_pago_id = fp.id
-            WHERE d.fecha = :fecha
+            WHERE 1=1
         ';
-        $params = ['fecha' => $fecha];
+        $params = [];
+
+        if (!empty($fecha)) {
+            $query .= ' AND d.fecha = :fecha';
+            $params['fecha'] = $fecha;
+        }
 
         if ($despachador !== '') {
             $query .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
@@ -92,7 +93,7 @@ try {
             $params['despachador2'] = '%' . $despachador . '%';
         }
 
-        $query .= ' ORDER BY d.id ASC';
+        $query .= ' ORDER BY d.fecha DESC, d.id ASC';
 
         $stmt = $pdo->prepare($query);
         $stmt->execute($params);

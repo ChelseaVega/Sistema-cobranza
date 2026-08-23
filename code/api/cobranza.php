@@ -23,7 +23,7 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'cola') {
         $fecha = isset($_GET['fecha']) ? trim($_GET['fecha']) : '';
         if (empty($fecha)) {
-            sendJsonResponse(false, 'La fecha es requerida.', [], 400);
+            $fecha = $pdo->query('SELECT MAX(fecha) FROM despachos')->fetchColumn() ?: date('Y-m-d');
         }
         
         $despachadorFiltro = isset($_GET['despachador']) ? trim($_GET['despachador']) : '';
