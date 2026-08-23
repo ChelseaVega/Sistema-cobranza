@@ -1,0 +1,97 @@
+{
+  "metadata_procesamiento": {
+    "fecha_procesamiento": "2026-07-26",
+    "dia_semana": "Domingo",
+    "despachador": "Despachador Chacao",
+    "origen_fuente": "manuscrito_ocr",
+    "total_listas_esperadas": 1,
+    "total_listas_procesadas": 1
+  },
+  "resumen_diario": {
+    "total_botellas_zenda": 22,
+    "total_botellas_alpes": 48,
+    "total_liquidos": 70,
+    "monto_bruto_calculado_usd": 298.0,
+    "total_registros": 6,
+    "observaciones_pie_pagina": "CONTINUA PARTE ATRAS ->"
+  },
+  "despachos": [
+    {
+      "id_item": 1,
+      "zona_edificio": "ZONA CHACAO",
+      "unidad_sublocal": null,
+      "nombre_cliente_raw": "SEGURIDAD CAMPO ALEGRE",
+      "alias_despacho_consolidado": "SEGURIDAD CAMPO ALEGRE",
+      "botellas_zenda": 0,
+      "botellas_alpes": 2,
+      "monto_calculado_usd": 6.0,
+      "estado_pago_declarado": "pendiente",
+      "requiere_revision_humana": false
+    },
+    {
+      "id_item": 2,
+      "zona_edificio": "EDF. COIMBRA",
+      "unidad_sublocal": null,
+      "nombre_cliente_raw": "EDF. COIMBRA",
+      "alias_despacho_consolidado": "EDF COIMBRA",
+      "botellas_zenda": 2,
+      "botellas_alpes": 0,
+      "monto_calculado_usd": 14.0,
+      "estado_pago_declarado": "pendiente",
+      "requiere_revision_humana": false
+    },
+    {
+      "id_item": 3,
+      "zona_edificio": null,
+      "unidad_sublocal": null,
+      "nombre_cliente_raw": "PASTELERIA CHACAO",
+      "alias_despacho_consolidado": "PASTELERIA CHACAO",
+      "botellas_zenda": 3,
+      "botellas_alpes": 0,
+      "monto_calculado_usd": 21.0,
+      "estado_pago_declarado": "pago_movil",
+      "monto_pagado_declarado_bs": 1650.0,
+      "referencia_pago": "65638",
+      "observaciones_chofer": "3 ZENDA + 1 AGUA ORIGINAL. PAGO MOBIL NRF: 65638 BS 1650",
+      "requiere_revision_humana": false
+    },
+    {
+      "id_item": 4,
+      "zona_edificio": "EDF. TUCURABUA",
+      "unidad_sublocal": "PISO 3 APT 3-05",
+      "nombre_cliente_raw": "EDF. TUCURABUA PISO 3 APT 3-05",
+      "alias_despacho_consolidado": "EDF TUCURABUA PISO 3 APT 3-05",
+      "botellas_zenda": 0,
+      "botellas_alpes": 2,
+      "monto_calculado_usd": 6.0,
+      "estado_pago_declarado": "pendiente",
+      "requiere_revision_humana": false
+    },
+    {
+      "id_item": 5,
+      "zona_edificio": null,
+      "unidad_sublocal": null,
+      "nombre_cliente_raw": "sayecito vecina",
+      "alias_despacho_consolidado": "sayecito vecina",
+      "botellas_zenda": 0,
+      "botellas_alpes": 1,
+      "monto_calculado_usd": 3.0,
+      "estado_pago_declarado": "por_verificar",
+      "observaciones_chofer": "ella le iba a dar el pago móvil preguntal",
+      "requiere_revision_humana": true,
+      "motivo_revision": "Pago móvil pendiente de confirmación según nota del chófer"
+    },
+    {
+      "id_item": 6,
+      "zona_edificio": null,
+      "unidad_sublocal": null,
+      "nombre_cliente_raw": "FISA",
+      "alias_despacho_consolidado": "FISA",
+      "botellas_zenda": 1,
+      "botellas_alpes": 4,
+      "monto_calculado_usd": 19.0,
+      "estado_pago_declarado": "pendiente",
+      "requiere_revision_humana": false
+    }
+  ]
+}
