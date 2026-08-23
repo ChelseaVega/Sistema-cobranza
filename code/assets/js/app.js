@@ -195,7 +195,7 @@ async function loadDashboardData() {
         renderDespachosTable(resumenRes.despachos || []);
         
         // 3. Cargar Cola de Cobranza WhatsApp
-        const cobranzaRes = await fetchAPI(`${API_BASE}/cobranza.php?action=cola&fecha=${currentSelectedDate}`);
+        const cobranzaRes = await fetchAPI(`${API_BASE}/cobranza.php?action=cola&fecha=${currentSelectedDate}${dispatcherParam}`);
         renderColaCobranzaTable(cobranzaRes.cola || []);
         
         // 4. Actualizar KPIs de totales despachados, deuda total, y cobranza

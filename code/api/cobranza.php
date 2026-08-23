@@ -26,6 +26,8 @@ try {
             sendJsonResponse(false, 'La fecha es requerida.', [], 400);
         }
         
+        $despachadorFiltro = isset($_GET['despachador']) ? trim($_GET['despachador']) : '';
+
         // Obtener el día de la semana en español
         $timestamp = strtotime($fecha);
         $diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -33,19 +35,38 @@ try {
         $fechaFormateada = date('d/m/Y', $timestamp);
         
         // 1. Clientes con Despacho HOY (Excluir facturacion_legal)
-        $stmtHoy = $pdo->prepare('
+        $queryHoy = '
             SELECT c.id as cliente_id, c.nombre_oficial, c.telefono_whatsapp, c.categoria,
                    d.botellas_zenda as zenda_hoy, d.botellas_alpes as alpes_hoy, d.estado_pago,
+                   COALESCE(ch.nombre, d.despachador) as despachador,
                    s.botellas_pendientes_zenda as zenda_total, s.botellas_pendientes_alpes as alpes_total,
                    s.monto_deuda_total_usd as deuda_total
             FROM despachos d
             JOIN clientes c ON d.cliente_id = c.id
+            LEFT JOIN choferes ch ON d.chofer_id = ch.id
             LEFT JOIN saldos_pendientes s ON c.id = s.cliente_id
             WHERE d.fecha = :fecha AND c.categoria != "facturacion_legal"
-        ');
-        $stmtHoy->execute(['fecha' => $fecha]);
+        ';
+        $paramsHoy = ['fecha' => $fecha];
+
+        if ($despachadorFiltro !== '') {
+            $queryHoy .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
+            $paramsHoy['despachador1'] = '%' . $despachadorFiltro . '%';
+            $paramsHoy['despachador2'] = '%' . $despachadorFiltro . '%';
+        }
+
+        $stmtHoy = $pdo->prepare($queryHoy);
+        $stmtHoy->execute($paramsHoy);
         $despachosHoy = $stmtHoy->fetchAll();
         
+        // Sentencia preparada para buscar entregas anteriores con deuda
+        $stmtHist = $pdo->prepare('
+            SELECT fecha, botellas_zenda, botellas_alpes
+            FROM despachos
+            WHERE cliente_id = :cliente_id AND fecha < :fecha AND estado_pago != "pagado"
+            ORDER BY fecha ASC
+        ');
+
         // Mantener registro de IDs que ya salieron hoy para no duplicarlos en la cola de inactivos
         $idsExcluidos = [];
         $cola = [];
@@ -67,7 +88,11 @@ try {
             
             $deudaTotal = isset($row['deuda_total']) ? (float)$row['deuda_total'] : 0.0;
             
-            // Construir el mensaje de WhatsApp
+            // Consultar despachos históricos anteriores pendientes de este cliente
+            $stmtHist->execute(['cliente_id' => $row['cliente_id'], 'fecha' => $fecha]);
+            $anterioresDetalle = $stmtHist->fetchAll();
+
+            // Construir el mensaje de WhatsApp con desglose de fechas
             $mensaje = generarMensajeCobranza(
                 $row['nombre_oficial'],
                 true,
@@ -76,7 +101,8 @@ try {
                 $zendaAnterior,
                 $alpesAnterior,
                 $diaSemanaNombre,
-                $fechaFormateada
+                $fechaFormateada,
+                $anterioresDetalle
             );
             
             $cola[] = [
@@ -84,6 +110,7 @@ try {
                 'nombre_oficial' => $row['nombre_oficial'],
                 'telefono_whatsapp' => $row['telefono_whatsapp'],
                 'categoria' => $row['categoria'],
+                'despachador' => $row['despachador'],
                 'estado_pago_hoy' => $row['estado_pago'],
                 'despacho_hoy' => [
                     'recibio_hoy' => true,
@@ -107,66 +134,73 @@ try {
         }
         
         // 2. Clientes INACTIVOS con deuda (saldo > 0 y que no hayan recibido hoy ni sean facturacion_legal)
-        $placeholders = '';
-        $params = [];
-        if (!empty($idsExcluidos)) {
-            $placeholders = ' AND c.id NOT IN (' . implode(',', $idsExcluidos) . ')';
-        }
-        
-        $queryInactivos = '
-            SELECT c.id as cliente_id, c.nombre_oficial, c.telefono_whatsapp, c.categoria,
-                   s.botellas_pendientes_zenda as zenda_total, s.botellas_pendientes_alpes as alpes_total,
-                   s.monto_deuda_total_usd as deuda_total
-            FROM saldos_pendientes s
-            JOIN clientes c ON s.cliente_id = c.id
-            WHERE (s.botellas_pendientes_zenda > 0 OR s.botellas_pendientes_alpes > 0)
-              AND c.categoria != "facturacion_legal"' . $placeholders;
-        
-        $stmtInactivos = $pdo->prepare($queryInactivos);
-        $stmtInactivos->execute($params);
-        $inactivos = $stmtInactivos->fetchAll();
-        
-        foreach ($inactivos as $row) {
-            $zendaTotal = (int)$row['zenda_total'];
-            $alpesTotal = (int)$row['alpes_total'];
-            $deudaTotal = (float)$row['deuda_total'];
+        // Solo incluirlos si no hay filtro de chofer restrictivo o si coincide
+        if ($despachadorFiltro === '') {
+            $placeholders = '';
+            if (!empty($idsExcluidos)) {
+                $placeholders = ' AND c.id NOT IN (' . implode(',', $idsExcluidos) . ')';
+            }
             
-            $mensaje = generarMensajeCobranza(
-                $row['nombre_oficial'],
-                false,
-                0,
-                0,
-                $zendaTotal,
-                $alpesTotal,
-                $diaSemanaNombre,
-                $fechaFormateada
-            );
+            $queryInactivos = '
+                SELECT c.id as cliente_id, c.nombre_oficial, c.telefono_whatsapp, c.categoria,
+                       s.botellas_pendientes_zenda as zenda_total, s.botellas_pendientes_alpes as alpes_total,
+                       s.monto_deuda_total_usd as deuda_total
+                FROM saldos_pendientes s
+                JOIN clientes c ON s.cliente_id = c.id
+                WHERE (s.botellas_pendientes_zenda > 0 OR s.botellas_pendientes_alpes > 0)
+                  AND c.categoria != "facturacion_legal"' . $placeholders;
             
-            $cola[] = [
-                'cliente_id' => (int)$row['cliente_id'],
-                'nombre_oficial' => $row['nombre_oficial'],
-                'telefono_whatsapp' => $row['telefono_whatsapp'],
-                'categoria' => $row['categoria'],
-                'estado_pago_hoy' => 'inactivo_con_deuda',
-                'despacho_hoy' => [
-                    'recibio_hoy' => false,
-                    'botellas_zenda_hoy' => 0,
-                    'botellas_alpes_hoy' => 0,
-                    'total_hoy' => 0
-                ],
-                'saldos_anteriores' => [
-                    'botellas_zenda_pendientes' => $zendaTotal,
-                    'botellas_alpes_pendientes' => $alpesTotal,
-                    'total_pendientes' => ($zendaTotal + $alpesTotal)
-                ],
-                'totales_consolidados' => [
-                    'total_botellas_zenda' => $zendaTotal,
-                    'total_botellas_alpes' => $alpesTotal,
-                    'total_botellas_global' => ($zendaTotal + $alpesTotal),
-                    'monto_deuda_total_usd' => $deudaTotal
-                ],
-                'mensaje_texto' => $mensaje
-            ];
+            $stmtInactivos = $pdo->prepare($queryInactivos);
+            $stmtInactivos->execute();
+            $inactivos = $stmtInactivos->fetchAll();
+            
+            foreach ($inactivos as $row) {
+                $zendaTotal = (int)$row['zenda_total'];
+                $alpesTotal = (int)$row['alpes_total'];
+                $deudaTotal = (float)$row['deuda_total'];
+                
+                $stmtHist->execute(['cliente_id' => $row['cliente_id'], 'fecha' => $fecha]);
+                $anterioresDetalle = $stmtHist->fetchAll();
+
+                $mensaje = generarMensajeCobranza(
+                    $row['nombre_oficial'],
+                    false,
+                    0,
+                    0,
+                    $zendaTotal,
+                    $alpesTotal,
+                    $diaSemanaNombre,
+                    $fechaFormateada,
+                    $anterioresDetalle
+                );
+                
+                $cola[] = [
+                    'cliente_id' => (int)$row['cliente_id'],
+                    'nombre_oficial' => $row['nombre_oficial'],
+                    'telefono_whatsapp' => $row['telefono_whatsapp'],
+                    'categoria' => $row['categoria'],
+                    'despachador' => 'Cartera Pendiente',
+                    'estado_pago_hoy' => 'inactivo_con_deuda',
+                    'despacho_hoy' => [
+                        'recibio_hoy' => false,
+                        'botellas_zenda_hoy' => 0,
+                        'botellas_alpes_hoy' => 0,
+                        'total_hoy' => 0
+                    ],
+                    'saldos_anteriores' => [
+                        'botellas_zenda_pendientes' => $zendaTotal,
+                        'botellas_alpes_pendientes' => $alpesTotal,
+                        'total_pendientes' => ($zendaTotal + $alpesTotal)
+                    ],
+                    'totales_consolidados' => [
+                        'total_botellas_zenda' => $zendaTotal,
+                        'total_botellas_alpes' => $alpesTotal,
+                        'total_botellas_global' => ($zendaTotal + $alpesTotal),
+                        'monto_deuda_total_usd' => $deudaTotal
+                    ],
+                    'mensaje_texto' => $mensaje
+                ];
+            }
         }
         
         sendJsonResponse(true, 'Cola de cobranza generada.', [
@@ -188,11 +222,10 @@ try {
             sendJsonResponse(false, 'Parámetros inválidos.', [], 400);
         }
         
-        // Actualizar el estado del despacho a 'notificado' para la fecha seleccionada
         $stmtUpdate = $pdo->prepare('
             UPDATE despachos
             SET estado_pago = "notificado",
-                observaciones = CONCAT(COALESCE(observaciones, ""), " | Mensaje de cobranza copiado el ", CURRENT_TIMESTAMP())
+                observaciones = CONCAT(COALESCE(observaciones, ""), " | Mensaje copiado el ", CURRENT_TIMESTAMP())
             WHERE cliente_id = :cliente_id AND fecha = :fecha AND estado_pago = "pendiente"
         ');
         $stmtUpdate->execute([
@@ -202,7 +235,6 @@ try {
         
         $filasModificadas = $stmtUpdate->rowCount();
         
-        // También podemos guardar un archivo de log de envío para auditoría
         $logDir = __DIR__ . '/../data';
         if (!is_dir($logDir)) {
             mkdir($logDir, 0777, true);
@@ -211,7 +243,7 @@ try {
         
         $logs = [];
         if (file_exists($logFile)) {
-            $logs = json_decode(file_get_contents($logFile), true);
+            $logs = json_decode(file_get_contents($logFile), true) ?: [];
         }
         
         $logs[] = [
@@ -228,7 +260,7 @@ try {
         ]);
     }
     
-    else {
+    elseif (!empty($action)) {
         sendJsonResponse(false, 'Acción o método no soportado.', [], 400);
     }
     
@@ -238,54 +270,82 @@ try {
 
 /**
  * Función que genera la plantilla del mensaje de WhatsApp según las reglas de negocio.
+ * Incluye desglose por fecha de entregas anteriores.
  * NUNCA DEBE INCLUIR MONTOS EN DÓLARES ($) NI EN BOLÍVARES (Bs).
  */
-function generarMensajeCobranza($nombreCliente, $recibioHoy, $zendaHoy, $alpesHoy, $zendaAnt, $alpesAnt, $diaSemana, $fecha) {
+function generarMensajeCobranza($nombreCliente, $recibioHoy, $zendaHoy, $alpesHoy, $zendaAnt, $alpesAnt, $diaSemana, $fecha, $anterioresDetalle = []) {
     $saludo = "Hola buen día estimado cliente 🤗\nEspero se encuentre muy bien.\n\n";
     $cuerpo = "";
     
+    // 1. Despacho del día
     if ($recibioHoy) {
-        // Formateo de botellas de hoy
         $textoHoy = "";
         $totalHoy = $zendaHoy + $alpesHoy;
         
         if ($zendaHoy > 0 && $alpesHoy > 0) {
-            $textoHoy = "{$totalHoy} botella(s) ({$alpesHoy} Alpes / {$zendaHoy} La Zenda)";
+            $textoHoy = "{$totalHoy} botellas ({$alpesHoy} Alpes / {$zendaHoy} La Zenda)";
         } elseif ($zendaHoy > 0) {
-            $textoHoy = "{$zendaHoy} botella(s) La Zenda";
+            $textoHoy = "{$zendaHoy} botellas La Zenda";
         } else {
-            $textoHoy = "{$alpesHoy} botella(s)";
+            $textoHoy = "{$alpesHoy} botellas";
         }
         
-        $cuerpo .= "Para confirmar la recepción de {$textoHoy} del día {$diaSemana} {$fecha}.\n";
-        
-        // Formateo de acumulado anterior
-        if ($zendaAnt > 0 || $alpesAnt > 0) {
-            $textoAnt = "";
-            if ($zendaAnt > 0 && $alpesAnt > 0) {
-                $textoAnt = "Tenía {$alpesAnt} botella(s) Alpes y {$zendaAnt} botella(s) La Zenda pendiente(s) de entregas anteriores.";
-            } elseif ($zendaAnt > 0) {
-                $textoAnt = "Tenía {$zendaAnt} botella(s) La Zenda pendiente(s) de entregas anteriores.";
-            } else {
-                $textoAnt = "Tenía {$alpesAnt} botella(s) pendiente(s) de entregas anteriores.";
+        $cuerpo .= "Para confirmar {$textoHoy} del dia {$fecha}.\n";
+    }
+
+    // 2. Desglose de saldo pendiente y fechas anteriores
+    $totalAnt = $zendaAnt + $alpesAnt;
+    if ($totalAnt > 0) {
+        if (!empty($anterioresDetalle)) {
+            // Agrupar por fecha
+            $porFecha = [];
+            foreach ($anterioresDetalle as $ant) {
+                $f = date('d/m/Y', strtotime($ant['fecha']));
+                if (!isset($porFecha[$f])) {
+                    $porFecha[$f] = ['zenda' => 0, 'alpes' => 0];
+                }
+                $porFecha[$f]['zenda'] += (int)$ant['botellas_zenda'];
+                $porFecha[$f]['alpes'] += (int)$ant['botellas_alpes'];
             }
-            $cuerpo .= "{$textoAnt}\n";
-        }
-    } else {
-        // Cliente Inactivo con Deuda
-        $textoAntInactivo = "";
-        if ($zendaAnt > 0 && $alpesAnt > 0) {
-            $textoAntInactivo = "{$alpesAnt} botella(s) Alpes y {$zendaAnt} botella(s) La Zenda de entregas anteriores";
-        } elseif ($zendaAnt > 0) {
-            $textoAntInactivo = "{$zendaAnt} botella(s) La Zenda de entregas anteriores";
+
+            if (count($porFecha) === 1) {
+                $fUnica = array_key_first($porFecha);
+                $z = $porFecha[$fUnica]['zenda'];
+                $a = $porFecha[$fUnica]['alpes'];
+                $t = $z + $a;
+                $txt = formatBotellasTexto($z, $a);
+                $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txt} del día {$fUnica}.\n";
+            } else {
+                $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de entregas anteriores:\n";
+                foreach ($porFecha as $fStr => $cantidades) {
+                    $z = $cantidades['zenda'];
+                    $a = $cantidades['alpes'];
+                    $txt = formatBotellasTexto($z, $a);
+                    $cuerpo .= "• Del día {$fStr}: {$txt}\n";
+                }
+            }
         } else {
-            $textoAntInactivo = "{$alpesAnt} botella(s) Alpes de entregas anteriores";
+            // Respaldo acumulado general si no hay desglose por fechas individuales en despachos
+            $txt = formatBotellasTexto($zendaAnt, $alpesAnt);
+            $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$txt} de entregas anteriores.\n";
         }
-        
-        $cuerpo .= "Le escribimos para recordarle que mantiene un saldo pendiente de {$textoAntInactivo}.\n";
     }
     
     $despedida = "\nSi ya fueron canceladas, por favor notificar.\n\nMuchísimas gracias por su colaboración.\nFeliz y bendecido día🙏";
     
     return $saludo . $cuerpo . $despedida;
+}
+
+/**
+ * Auxiliar para formatear texto de botellas según marcas
+ */
+function formatBotellasTexto($zenda, $alpes) {
+    $total = $zenda + $alpes;
+    if ($zenda > 0 && $alpes > 0) {
+        return "{$total} botella(s) ({$alpes} Alpes / {$zenda} La Zenda)";
+    } elseif ($zenda > 0) {
+        return "{$zenda} botella(s) La Zenda";
+    } else {
+        return "{$alpes} botella(s) Alpes";
+    }
 }

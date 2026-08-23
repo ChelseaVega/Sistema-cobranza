@@ -87,8 +87,9 @@ try {
         $params = ['fecha' => $fecha];
 
         if ($despachador !== '') {
-            $query .= ' AND (d.despachador LIKE :despachador OR ch.nombre LIKE :despachador)';
-            $params['despachador'] = '%' . $despachador . '%';
+            $query .= ' AND (d.despachador LIKE :despachador1 OR ch.nombre LIKE :despachador2)';
+            $params['despachador1'] = '%' . $despachador . '%';
+            $params['despachador2'] = '%' . $despachador . '%';
         }
 
         $query .= ' ORDER BY d.id ASC';
