@@ -14,7 +14,13 @@ if (!isset($_SESSION['usuario_id'])) {
     sendJsonResponse(false, 'Acceso denegado. Sesión no iniciada.', [], 401);
 }
 
-$action = isset($_GET['action']) ? trim($_GET['action']) : 'listar';
+$action = isset($_GET['action']) ? trim($_GET['action']) : '';
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
+    $action = 'listar';
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($action)) {
+    $action = 'crear';
+}
 
 try {
     $pdo = getDatabaseConnection();
