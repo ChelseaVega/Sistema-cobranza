@@ -185,6 +185,43 @@ function initializeDatabaseSchema(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
 
+    // 9. Asegurar columnas en tablas existentes (Migración no destructiva)
+    $columnStmt = $pdo->query('SHOW COLUMNS FROM despachos');
+    $columns = [];
+    foreach ($columnStmt->fetchAll() as $col) {
+        $columns[$col['Field']] = $col;
+    }
+
+    if (!isset($columns['nombre_cliente_raw'])) {
+        $pdo->exec('ALTER TABLE despachos ADD COLUMN nombre_cliente_raw VARCHAR(150) NULL AFTER cliente_id');
+    }
+    if (!isset($columns['alias_despacho_consolidado'])) {
+        $pdo->exec('ALTER TABLE despachos ADD COLUMN alias_despacho_consolidado VARCHAR(150) NULL AFTER nombre_cliente_raw');
+    }
+    if (!isset($columns['chofer_id'])) {
+        $pdo->exec('ALTER TABLE despachos ADD COLUMN chofer_id INT NULL AFTER despachador');
+    }
+
+    // Permitir cliente_id NULL para despachos con alertas pendientes
+    if (isset($columns['cliente_id']) && strtoupper($columns['cliente_id']['Null']) === 'NO') {
+        try {
+            $fkStmt = $pdo->query("
+                SELECT CONSTRAINT_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'despachos'
+                  AND COLUMN_NAME = 'cliente_id'
+                  AND REFERENCED_TABLE_NAME IS NOT NULL
+            ");
+            foreach ($fkStmt->fetchAll() as $fk) {
+                $name = $fk['CONSTRAINT_NAME'];
+                $pdo->exec("ALTER TABLE despachos DROP FOREIGN KEY `{$name}`");
+            }
+        } catch (Exception $e) {}
+
+        $pdo->exec('ALTER TABLE despachos MODIFY cliente_id INT NULL');
+    }
+
     // Asegurar semillas por defecto
     $userCount = $pdo->query("SELECT COUNT(*) FROM usuarios")->fetchColumn();
     if ((int)$userCount === 0) {
