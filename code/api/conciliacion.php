@@ -75,17 +75,19 @@ try {
         $query = '
             SELECT d.id, d.fecha, d.cliente_id, d.nombre_cliente_raw, d.alias_despacho_consolidado,
                    COALESCE(c.nombre_oficial, d.nombre_cliente_raw, d.alias_despacho_consolidado) as cliente,
-                   d.despachador, d.botellas_zenda, d.botellas_alpes, d.monto_despacho_usd,
+                   COALESCE(ch.nombre, d.despachador) as despachador,
+                   d.chofer_id, d.botellas_zenda, d.botellas_alpes, d.monto_despacho_usd,
                    d.estado_pago, fp.nombre_forma as forma_pago
             FROM despachos d
             LEFT JOIN clientes c ON d.cliente_id = c.id
+            LEFT JOIN choferes ch ON d.chofer_id = ch.id
             LEFT JOIN formas_pago fp ON d.forma_pago_id = fp.id
             WHERE d.fecha = :fecha
         ';
         $params = ['fecha' => $fecha];
 
         if ($despachador !== '') {
-            $query .= ' AND d.despachador LIKE :despachador';
+            $query .= ' AND (d.despachador LIKE :despachador OR ch.nombre LIKE :despachador)';
             $params['despachador'] = '%' . $despachador . '%';
         }
 

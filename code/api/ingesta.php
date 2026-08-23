@@ -103,14 +103,31 @@ try {
     $stmtClientes = $pdo->query('SELECT id, nombre_oficial, nombre_despacho_alias, categoria FROM clientes WHERE activo = 1');
     $clientes = $stmtClientes->fetchAll();
     
+    // Buscar o registrar automáticamente el chofer/despachador en la tabla choferes
+    $stmtFindChofer = $pdo->prepare('SELECT id FROM choferes WHERE nombre = :nombre OR :nombre_like LIKE CONCAT("%", nombre, "%") LIMIT 1');
+    $stmtFindChofer->execute([
+        'nombre' => $despachador,
+        'nombre_like' => $despachador
+    ]);
+    $choferRow = $stmtFindChofer->fetch();
+    $choferId = null;
+
+    if ($choferRow) {
+        $choferId = (int)$choferRow['id'];
+    } else {
+        $stmtAddChofer = $pdo->prepare('INSERT INTO choferes (nombre, activo) VALUES (:nombre, 1)');
+        $stmtAddChofer->execute(['nombre' => $despachador]);
+        $choferId = (int)$pdo->lastInsertId();
+    }
+
     // Preparar sentencias preparadas para inserción en BD
     $stmtInsertDespacho = $pdo->prepare('
         INSERT INTO despachos (
-            fecha, cliente_id, nombre_cliente_raw, alias_despacho_consolidado, despachador,
+            fecha, cliente_id, nombre_cliente_raw, alias_despacho_consolidado, despachador, chofer_id,
             botellas_zenda, botellas_alpes, monto_despacho_usd, estado_pago, observaciones, referencia_pago
         )
         VALUES (
-            :fecha, :cliente_id, :nombre_cliente_raw, :alias_despacho_consolidado, :despachador,
+            :fecha, :cliente_id, :nombre_cliente_raw, :alias_despacho_consolidado, :despachador, :chofer_id,
             :botellas_zenda, :botellas_alpes, :monto_despacho_usd, :estado_pago, :observaciones, :referencia_pago
         )
     ');
@@ -220,6 +237,7 @@ try {
             'nombre_cliente_raw' => $nombreRaw !== '' ? $nombreRaw : $textoComparar,
             'alias_despacho_consolidado' => $aliasConsolidado !== '' ? $aliasConsolidado : $nombreRaw,
             'despachador' => $despachador,
+            'chofer_id' => $choferId,
             'botellas_zenda' => $botellasZenda,
             'botellas_alpes' => $botellasAlpes,
             'monto_despacho_usd' => $montoCalculado,
